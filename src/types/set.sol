@@ -188,6 +188,23 @@ library Set {
         }
     }
 
+    function values(set self) internal view returns (bytes32[] memory values_) {
+        _requireInstantiated(self);
+
+        assembly {
+            values_ := mload(0x40)
+            let count_ := sload(self)
+
+            mstore(0x40, add(values_, mul(add(count_, 1), 0x20)))
+            mstore(values_, count_)
+            for { let i := 1 } iszero(gt(i, count_)) { i := add(i, 1) } {
+                let offset := mul(i, 0x20)
+
+                mstore(add(values_, offset), sload(add(self, offset)))
+            }
+        }
+    }
+
     function _requireInstantiated(set instance) private pure {
         bytes4 isNotInstantiatedSelector = Set_IsNotInstantiated.selector;
 
