@@ -8,13 +8,14 @@ using Set for set global;
 library Set {
     bytes32 private constant SALT_PREFIX = "yulmate.set";
 
-    error SetNotInstantiated();
-    error SetAlreadyInstantiatedAndNotEmpty();
-    error ElementNotInSet();
-    error ElementAlreadyInSet();
+    error Set_IsNotInstantiated();
+    error Set_AlreadyInstantiatedAndNotEmpty();
+    error Set_DoesNotContainElement();
+    error Set_AlreadyContainsElement();
+    error Set_IndexOutOfBounds();
 
     function instantiate(string calldata /*salt*/ ) internal view returns (set instance) {
-        bytes4 setAlreadyInstantiatedAndNotEmptySelector = SetAlreadyInstantiatedAndNotEmpty.selector;
+        bytes4 alreadyInstantiatedAndNotEmptySelector = Set_AlreadyInstantiatedAndNotEmpty.selector;
 
         assembly {
             let pointer := mload(0x40)
@@ -25,18 +26,18 @@ library Set {
 
             instance := keccak256(pointer, add(saltLength, 0x20))
             if sload(instance) {
-                mstore(0x00, setAlreadyInstantiatedAndNotEmptySelector)
+                mstore(0x00, alreadyInstantiatedAndNotEmptySelector)
                 revert(0x1c, 0x04)
             }
         }
     }
 
     function add(set self, bytes32 element) internal {
-        bytes4 elementAlreadyInSetSelector = ElementAlreadyInSet.selector;
+        bytes4 alreadyContainsElement = Set_AlreadyContainsElement.selector;
 
         if (!tryAdd(self, element)) {
             assembly {
-                mstore(0x00, elementAlreadyInSetSelector)
+                mstore(0x00, alreadyContainsElement)
                 revert(0x1c, 0x04)
             }
         }
@@ -63,11 +64,11 @@ library Set {
     }
 
     function remove(set self, bytes32 element) internal {
-        bytes4 elementNotInSetSelector = ElementNotInSet.selector;
+        bytes4 doesNotContainElement = Set_DoesNotContainElement.selector;
 
         if (!tryRemove(self, element)) {
             assembly {
-                mstore(0x00, elementNotInSetSelector)
+                mstore(0x00, doesNotContainElement)
                 revert(0x1c, 0x04)
             }
         }
@@ -108,7 +109,7 @@ library Set {
             for {
                 let count_ := sload(self)
                 let i := 1
-            } lt(i, add(count_, 1)) { i := add(i, 1) } {
+            } iszero(gt(i, count_)) { i := add(i, 1) } {
                 let elementSlot := add(self, mul(i, 0x20))
                 mstore(0x20, sload(elementSlot))
 
@@ -119,11 +120,45 @@ library Set {
         }
     }
 
-    function count(set self) internal view returns (uint256 count_) {
+    function foreach(set self, function(bytes32) func) internal {
         _requireInstantiated(self);
 
         assembly {
-            count_ := sload(self)
+            for {
+                let count_ := sload(self)
+                let i := 1
+            } iszero(gt(i, count_)) { i := add(i, 1) } {
+                mstore(0x00, sload(add(self, mul(i, 0x20))))
+
+                if iszero(call(gas(), func, 0, 0x00, 0x20, 0, 0)) {
+                    let errorSize := returndatasize()
+
+                    if errorSize {
+                        let pointer := mload(0x40)
+
+                        returndatacopy(pointer, 0x20, errorSize)
+                        revert(pointer, errorSize)
+                    }
+
+                    revert(0, 0)
+                }
+            }
+        }
+    }
+
+    function at(set self, uint256 index) internal view returns (bytes32 element) {
+        _requireInstantiated(self);
+        bytes4 indexOutOfBoundsSelector = Set_IndexOutOfBounds.selector;
+
+        assembly {
+            let count_ := sload(self)
+
+            if iszero(lt(index, count_)) {
+                mstore(0x00, indexOutOfBoundsSelector)
+                revert(0x1c, 0x04)
+            }
+
+            element := sload(add(self, mul(add(index, 1), 0x20)))
         }
     }
 
@@ -137,12 +172,28 @@ library Set {
         }
     }
 
+    function count(set self) internal view returns (uint256 count_) {
+        _requireInstantiated(self);
+
+        assembly {
+            count_ := sload(self)
+        }
+    }
+
+    function isEmpty(set self) internal view returns (bool isEmpty_) {
+        _requireInstantiated(self);
+
+        assembly {
+            isEmpty_ := iszero(sload(self))
+        }
+    }
+
     function _requireInstantiated(set instance) private pure {
-        bytes4 setNotInstantiatedSelector = SetNotInstantiated.selector;
+        bytes4 isNotInstantiatedSelector = Set_IsNotInstantiated.selector;
 
         assembly {
             if iszero(instance) {
-                mstore(0x00, setNotInstantiatedSelector)
+                mstore(0x00, isNotInstantiatedSelector)
                 revert(0x1c, 0x04)
             }
         }
